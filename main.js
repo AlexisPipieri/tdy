@@ -44,6 +44,7 @@ function writePrefs(prefs) {
 
 const needsOnboarding = process.env.TDY_ONBOARDING === '1'
   || (!readPrefs().onboarded && !fs.existsSync(DATA_FILE));
+let lastBlurHide = 0;    // when the window last hid itself on blur; lets a tray click on an open window close it
 let onboarding = false;  // true while the welcome card is up: the window must not hide on blur
 
 function processRollover(data) {
@@ -69,7 +70,9 @@ function createWindow() {
 
 
   mainWindow.on('blur', () => {
-    if (!onboarding) mainWindow.hide();
+    if (onboarding) return;
+    mainWindow.hide();
+    lastBlurHide = Date.now();
   });
 }
 
@@ -212,6 +215,8 @@ function createTray() {
   tray.on('click', (event, bounds) => {
     if (mainWindow.isVisible()) {
       mainWindow.hide();
+    } else if (Date.now() - lastBlurHide < 500) {
+      // The press on the icon blurred the window and hid it just before this click: treat it as a close, not a reopen
     } else {
       showWindowAtTray(bounds);
     }
