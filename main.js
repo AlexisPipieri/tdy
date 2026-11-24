@@ -271,9 +271,14 @@ ipcMain.handle('open-settings', () => {
 
 ipcMain.handle('get-settings', () => ({
   loginItem: app.getLoginItemSettings().openAtLogin,
+  newTaskPosition: readPrefs().newTaskPosition === 'top' ? 'top' : 'bottom',
   dataPath: DATA_FILE,
   version: app.getVersion(),
 }));
+
+ipcMain.handle('set-new-task-position', (event, value) => {
+  writePrefs({ ...readPrefs(), newTaskPosition: value === 'top' ? 'top' : 'bottom' });
+});
 
 ipcMain.handle('set-login-item', (event, value) => {
   app.setLoginItemSettings({ openAtLogin: value });

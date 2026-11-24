@@ -20,8 +20,9 @@ let sortDir = 'asc';
 // ── Load ──────────────────────────────────────────────────
 
 async function loadSettings() {
-  const { loginItem, dataPath, version } = await ipcRenderer.invoke('get-settings');
+  const { loginItem, newTaskPosition, dataPath, version } = await ipcRenderer.invoke('get-settings');
   document.getElementById('login-item-toggle').checked = loginItem;
+  setPositionButtons(newTaskPosition);
   document.getElementById('data-path').textContent = dataPath.replace(process.env.HOME, '~');
   document.getElementById('about-version').textContent = `Version ${version}`;
 }
@@ -35,6 +36,21 @@ async function loadLabels() {
 
 loadSettings();
 loadLabels();
+
+// ── New task position ─────────────────────────────────────
+
+function setPositionButtons(value) {
+  document.querySelectorAll('#new-task-position button').forEach(b => {
+    b.classList.toggle('active', b.dataset.value === value);
+  });
+}
+
+document.querySelectorAll('#new-task-position button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    setPositionButtons(btn.dataset.value);
+    ipcRenderer.invoke('set-new-task-position', btn.dataset.value);
+  });
+});
 
 // ── Sort button ───────────────────────────────────────────
 

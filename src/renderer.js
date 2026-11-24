@@ -4,6 +4,7 @@ const { getNextColor, ACCENT } = require('./task-store');
 
 let tasks = [];
 let projects = [];
+let newTaskPosition = 'bottom';  // from Settings; read again each time the window opens
 const draft = {
   projectId: null, projectName: null, deadline: null, deadlineLabel: null,
   reset() { this.projectId = null; this.projectName = null; this.deadline = null; this.deadlineLabel = null; },
@@ -383,6 +384,10 @@ function updateBadge() {
   ipcRenderer.invoke('update-badge', tasks.filter(t => !t.completed && t.bucket === 'today').length);
 }
 
+function loadNewTaskPosition() {
+  ipcRenderer.invoke('get-settings').then(s => { newTaskPosition = s.newTaskPosition; });
+}
+
 function addTask(text) {
   let title = text;
   if (draft.projectName) title = title.replace(`#${draft.projectName}`, '');
@@ -390,7 +395,7 @@ function addTask(text) {
   title = title.replace(/\s+/g, ' ').trim();
 
   const bucket = currentView === 'focus' ? 'today' : 'anytime';
-  tasks.push({
+  tasks[newTaskPosition === 'top' ? 'unshift' : 'push']({
     id: generateId(),
     title,
     bucket,
@@ -1280,6 +1285,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const input       = document.getElementById('task-input');
   const settingsBtn = document.getElementById('settings-btn');
 
+  loadNewTaskPosition();
   settingsBtn?.addEventListener('click', openSettings);
   document.getElementById('history-footer-btn')?.addEventListener('click', () => showHistoryPanel());
 
@@ -1355,6 +1361,7 @@ ipcRenderer.on('window-shown', () => {
   hideProjectPicker(); hideDeadlinePicker(); hideHashProjectPicker(); hideAtDatePicker(); hideDotsMenu();
   document.getElementById('task-input').focus();
   loadTasks();
+  loadNewTaskPosition();
 });
 
 ipcRenderer.on('reload-tasks', () => { loadTasks(); });
