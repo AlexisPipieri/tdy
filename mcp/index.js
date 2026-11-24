@@ -1,156 +1,46 @@
 #!/usr/bin/env node
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import {
+  CallToolRequestSchema, ListToolsRequestSchema, ListPromptsRequestSchema, GetPromptRequestSchema,
+} from '@modelcontextprotocol/sdk/types.js';
+import { readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
-import { randomUUID } from 'crypto';
-import taskStoreModule from '../src/task-store.js';
+import { createRequire } from 'module';
 
-const { createStore, getNextColor } = taskStoreModule;
-const store = createStore(join(homedir(), 'Library', 'Application Support', 'tdy'));
+const require = createRequire(import.meta.url);
+const { createStore } = require('../src/task-store.js');
+const { createTools } = require('../src/mcp-tools.js');
+const { version } = require('../package.json');
 
-function resolveProject(data, name) {
-  if (!name) return null;
-  const existing = (data.projects || []).find(p => p.name.toLowerCase() === name.toLowerCase());
-  if (existing) return existing.id;
-  if (!data.projects) data.projects = [];
-  const project = { id: randomUUID(), name, color: getNextColor(data.projects) };
-  data.projects.push(project);
-  return project.id;
-}
+// TDY_DATA_DIR points the server at another data folder (e.g. the tdy-test one used by `npm run dev:seed`)
+const dataDir = process.env.TDY_DATA_DIR || join(homedir(), 'Library', 'Application Support', 'tdy');
+const readPrefs = () => {
+  try { return JSON.parse(readFileSync(join(dataDir, 'prefs.json'), 'utf8')); } catch { return {}; }
+};
+const { tools, prompts, call } = createTools(createStore(dataDir), { readPrefs });
 
-function formatTask(task, projects) {
-  const project = task.projectId ? (projects || []).find(p => p.id === task.projectId) : null;
-  return {
-    id:         task.id,
-    title:      task.title,
-    bucket:     task.bucket,
-    deadline:   task.deadline || null,
-    project:    project ? project.name : null,
-    completed:  task.completed,
-    created_at: task.createdAt,
-  };
-}
+const server = new Server({ name: 'tdy', version }, { capabilities: { tools: {}, prompts: {} } });
 
-const server = new Server(
-  { name: 'tdy', version: '0.1.0' },
-  { capabilities: { tools: {} } }
-);
-
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [
-    {
-      name: 'list_tasks',
-      description: "Returns the user's task list. Use when the user asks about their tasks, or when context about current workload is needed. Call with filter 'anytime' at the start of a work session to understand what's in the backlog.",
-      inputSchema: {
-        type: 'object',
-        properties: {
-          filter: {
-            type: 'string',
-            enum: ['today', 'anytime', 'all'],
-            description: "Which bucket to return. Omit or use 'all' for everything.",
-          },
-        },
-      },
-    },
-    {
-      name: 'add_task',
-      description: "Adds a task to the user's todo list. Use proactively when the conversation implies something needs to be tracked or done later, even if the user doesn't explicitly ask. If project is not clear from context, ask once before adding.",
-      inputSchema: {
-        type: 'object',
-        properties: {
-          title:    { type: 'string', description: 'Task title' },
-          bucket:   { type: 'string', enum: ['today', 'anytime'], description: "Bucket to add to. Defaults to 'anytime'." },
-          deadline: { type: 'string', description: 'Due date as YYYY-MM-DD. Optional.' },
-          project:  { type: 'string', description: 'Project name. Created automatically if it does not exist. Optional.' },
-        },
-        required: ['title'],
-      },
-    },
-    {
-      name: 'complete_task',
-      description: 'Marks a task as complete. Use proactively when the conversation indicates a task has been finished.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          id: { type: 'string', description: 'Task ID from list_tasks' },
-        },
-        required: ['id'],
-      },
-    },
-    {
-      name: 'update_task',
-      description: "Updates an existing task. Use when the user asks to modify a task's title, deadline, bucket, or project.",
-      inputSchema: {
-        type: 'object',
-        properties: {
-          id:       { type: 'string', description: 'Task ID from list_tasks' },
-          title:    { type: 'string', description: 'New title' },
-          bucket:   { type: 'string', enum: ['today', 'anytime'], description: 'Move to a different bucket' },
-          deadline: { type: 'string', description: 'New deadline as YYYY-MM-DD. Pass empty string to remove.' },
-          project:  { type: 'string', description: 'New project name. Pass empty string to remove.' },
-        },
-        required: ['id'],
-      },
-    },
-  ],
-}));
+server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-  const data = store.read();
-
-  if (name === 'list_tasks') {
-    const filter = args?.filter || 'all';
-    const tasks = data.tasks.filter(t => filter === 'all' || (!t.completed && t.bucket === filter));
-    return {
-      content: [{ type: 'text', text: JSON.stringify(tasks.map(t => formatTask(t, data.projects)), null, 2) }],
-    };
-  }
-
-  if (name === 'add_task') {
-    const projectId = resolveProject(data, args.project);
-    const task = {
-      id:          randomUUID(),
-      title:       args.title,
-      bucket:      args.bucket || 'anytime',
-      completed:   false,
-      createdAt:   new Date().toISOString(),
-      completedAt: null,
-      projectId,
-      deadline:    args.deadline || null,
-    };
-    data.tasks.unshift(task);
-    store.write(data);
-    const project = projectId ? data.projects.find(p => p.id === projectId) : null;
-    return {
-      content: [{ type: 'text', text: `Added "${task.title}" to ${task.bucket}${task.deadline ? ` · due ${task.deadline}` : ''}${project ? ` · ${project.name}` : ''}` }],
-    };
-  }
-
-  if (name === 'complete_task') {
-    const task = data.tasks.find(t => t.id === args.id);
-    if (!task) return { content: [{ type: 'text', text: `Task not found: ${args.id}` }] };
-    task.completed   = true;
-    task.completedAt = new Date().toISOString();
-    store.write(data);
-    return { content: [{ type: 'text', text: `Completed: "${task.title}"` }] };
-  }
-
-  if (name === 'update_task') {
-    const task = data.tasks.find(t => t.id === args.id);
-    if (!task) return { content: [{ type: 'text', text: `Task not found: ${args.id}` }] };
-    if (args.title    !== undefined) task.title     = args.title;
-    if (args.bucket   !== undefined) task.bucket    = args.bucket;
-    if (args.deadline !== undefined) task.deadline  = args.deadline || null;
-    if (args.project  !== undefined) task.projectId = args.project ? resolveProject(data, args.project) : null;
-    store.write(data);
-    return { content: [{ type: 'text', text: `Updated: "${task.title}"` }] };
-  }
-
-  return { content: [{ type: 'text', text: `Unknown tool: ${name}` }] };
+  const { text, isError } = call(request.params.name, request.params.arguments);
+  return { content: [{ type: 'text', text }], ...(isError ? { isError: true } : {}) };
 });
 
-const transport = new StdioServerTransport();
-await server.connect(transport);
+server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+  prompts: prompts.map(({ name, description }) => ({ name, description })),
+}));
+
+server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+  const prompt = prompts.find(p => p.name === request.params.name);
+  if (!prompt) throw new Error(`Unknown prompt: ${request.params.name}`);
+  return {
+    description: prompt.description,
+    messages: [{ role: 'user', content: { type: 'text', text: prompt.text } }],
+  };
+});
+
+await server.connect(new StdioServerTransport());

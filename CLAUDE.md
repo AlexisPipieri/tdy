@@ -57,6 +57,7 @@ The `v*` tag triggers `.github/workflows/release.yml` (~5 min): tests, signs, no
 ## Features
 
 - **Tasks**: add via input bar, click text to edit inline, check to complete, × to delete
+- **Add position**: Settings → General → Tasks chooses whether new tasks go to the top or the bottom of their list (`newTaskPosition` in `prefs.json`, default bottom). Only affects insertion; existing order is untouched
 - **Deadlines**: set via `@` inline syntax (e.g. `@tomorrow`, `@monday`, `@may 5`) or calendar icon on hover; shown as a pill on the task
 - **Projects**: assign color-coded tags via `#` inline syntax or tag icon on hover; create new projects inline
 - **Buckets**: tasks live in Today or Anytime; move between them via tray icons on hover
@@ -65,6 +66,17 @@ The `v*` tag triggers `.github/workflows/release.yml` (~5 min): tests, signs, no
 - **Tray icon**: left-click to show/hide window; right-click for menu with data file path, Show in Finder, Restart, Quit
 - **Onboarding**: on first launch (no `tasks.json` yet) the window opens under the tray icon with a welcome card pointing at it; dismissal is stored in `prefs.json`. Force it with `TDY_ONBOARDING=1 npm run dev:seed`
 - **Auto-rollover**: uncompleted tasks carry over daily; midnight check reloads tasks automatically
+
+## MCP server
+
+`mcp/index.js` (stdio) lets Claude and other MCP clients read and edit tasks. The tools and prompts live in `src/mcp-tools.js` (tested in `tests/mcp-tools.test.js`); `mcp/index.js` is only the MCP plumbing.
+
+- Tools: `list_tasks` (open tasks + today's date, filters by bucket/label/overdue/due_before), `list_completed` (date range, default last 7 days), `list_labels`, `add_tasks` (batch; follows the add-position setting), `complete_task`, `update_task` (incl. position and reopen), `delete_task`
+- Prompts: `plan_my_day`, `weekly_review`
+- The UI calls projects "labels", so the MCP surface does too (`label` fields map to `projectId`)
+- Local setup: `cd mcp && npm install`, then `claude mcp add tdy node /path/to/Todo/mcp/index.js`. `TDY_DATA_DIR` points it at another data folder (e.g. `~/Library/Application Support/tdy-test`)
+- Not shipped in the packaged app yet
+- The app picks up MCP writes through its file watcher (200 ms debounce). A save from the app inside that window would overwrite the MCP change
 
 ## Data
 
